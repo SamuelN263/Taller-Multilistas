@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multilista DIVIPOLA</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+    #panel { position: absolute; z-index: 1000; top: 10px; right: 10px; background: #fff;
+             padding: 10px 12px; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.3); width: 230px; }
+    #panel label { display: block; font-size: 12px; margin-top: 6px; }
+    #panel select { width: 100%; }
+    #map { height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <strong>Colombia</strong>
+    <label>Departamento
+      <select id="dep"><option value="">-- todos --</option></select>
+    </label>
+    <label>Municipio
+      <select id="mun" disabled><option value="">-- seleccione --</option></select>
+    </label>
+    <div id="info" style="font-size:12px;margin-top:8px"></div>
+  </div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([4.57, -74.3], 6);
+    const calles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Tiles &copy; Esri'
+    });
+    const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, attribution: 'Tiles &copy; Esri'
+    });
+    calles.addTo(map);
+    L.control.layers({ 'Calles': calles, 'Satélite': satelite }).addTo(map);
+
+    const layer = L.layerGroup().addTo(map);
+    const depSel = document.getElementById('dep');
+    const munSel = document.getElementById('mun');
+    const info = document.getElementById('info');
+    let departamentos = [];
+
+    function marker(m, dep) {
+      return L.circleMarker([m.lat, m.lon], { radius: 4, weight: 1 })
+        .bindPopup(`<b>${m.name}</b><br>${dep.name}<br>Código: ${m.id}<br>${m.kind}`);
+    }
+
+    function draw(deps) {
+      layer.clearLayers();
+      const pts = [];
+      deps.forEach(d => (d.children || []).forEach(m => {
+        if (m.lat != null && m.lon != null) { marker(m, d).addTo(layer); pts.push([m.lat, m.lon]); }
+      }));
+      info.textContent = `${pts.length} puntos`;
+      return pts;
+    }
+
+    fetch('/api/multilista')
+      .then(r => r.json())
+      .then(data => {
+        departamentos = data[0].children;           // Colombia -> departamentos
+        departamentos.forEach(d => depSel.add(new Option(d.name, d.id)));
+        draw(departamentos);
+      });
+
+    depSel.addEventListener('change', () => {
+      munSel.length = 1;
+      const d = departamentos.find(x => x.id === depSel.value);
+      if (!d) { munSel.disabled = true; draw(departamentos); map.setView([4.57, -74.3], 6); return; }
+      d.children.forEach(m => munSel.add(new Option(m.name, m.id)));
+      munSel.disabled = false;
+      const pts = draw([d]);
+      if (pts.length) map.fitBounds(pts, { padding: [30, 30] });
+    });
+
+    munSel.addEventListener('change', () => {
+      const d = departamentos.find(x => x.id === depSel.value);
+      const m = d && d.children.find(x => x.id === munSel.value);
+      if (m && m.lat != null) {
+        map.setView([m.lat, m.lon], 12);
+        L.popup().setLatLng([m.lat, m.lon])
+          .setContent(`<b>${m.name}</b><br>${d.name}<br>Código: ${m.id}`).openOn(map);
+      }
+    });
+  </script>
+</body>
+</html>
